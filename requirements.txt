@@ -1,0 +1,11 @@
+# Packages to install 
+## needed them for the original repo but not for the forked one - guess the were already installed)
+
+#RKTK.jl
+import Pkg; Pkg.add("DZOptimization")
+import Pkg; Pkg.add("MultiFloats")
+import Pkg; Pkg.add("RungeKuttaToolKit")
+
+#RKTKTests.jl
+import Pkg; Pkg.add("AssemblyView")
+import Pkg; Pkg.add("DZLinearAlgebra")  #* DZLinearAlgebra (not found in project, manifest or registry)
