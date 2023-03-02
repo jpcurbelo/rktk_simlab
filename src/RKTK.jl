@@ -152,6 +152,11 @@ numstr(x)::String = @sprintf("%#-18.12g", BigFloat(x))
 shortstr(x)::String = @sprintf("%#.5g", BigFloat(x))
 
 function print_help()::Nothing
+    """
+    print_help()
+
+    Prints a help message that describes how to use the RKToolbox program.
+    """
     say("Usage: julia RKTK.jl <command> [parameters...]")
     say()
     say("RKTK provides the following <command> options:")
@@ -197,9 +202,30 @@ end
 
 function rkoc_optimizer(::Type{T}, order::Int, num_stages::Int,
         x_init::Vector{BigFloat}, num_iters::Int) where {T <: Real}
+    """
+    rkoc_optimizer(T, order, num_stages, x_init, num_iters)
+    
+    Create an optimizer for the RKOC (Runge-Kutta Optimized Controller) algorithm with the given parameters.
+    
+    # Arguments
+    - `T`: Type of the number to use in the optimization. 
+    - `order`: The order of accuracy for the RKOC method. 
+    - `num_stages`: The number of stages to use in the RKOC method. 
+    - `x_init`: An initial guess for the optimization variables. 
+    - `num_iters`: Maximum number of iterations for the optimization. 
+    
+    # Returns
+    An instance of the BFGSOptimizer type, which can be used to run the optimization.
+
+    """
+
+    ## homefolder/.julia/packages/...
+    # ("RungeKuttaToolKit") Objective and gradient functors for the RKOC method with the given T, order and num_stages.
     obj_func, grad_func = rkoc_explicit_backprop_functors(T, order, num_stages)
     num_vars = div(num_stages * (num_stages + 1), 2)
     @assert length(x_init) == num_vars
+
+    # ("DZOptimization")
     opt = BFGSOptimizer(obj_func, grad_func, T.(x_init), inv(T(1_000_000)))
     opt.iteration_count[] = num_iters
     opt
@@ -216,9 +242,55 @@ function rkoc_optimizer(::Type{T}, id::RKTKID,
 end
 
 ################################################################################
+function create_directory(order::Int, num_stages::Int)
+    """
+    Creates a directory with a specific format to store the files before creating them.
+
+    Args:
+        order (Int): The order of the simulation.
+        num_stages (Int): The number of stages of the simulation.
+        precision (Int): The precision of the simulation.
+    
+    Returns:
+        folder_name (String): The name of the created folder.
+    """
+
+    folder_name = "RKTK_order_$(order)_num_stages_$(num_stages)_precision_Float32"
+    
+    # create folder if it does not exist
+    if !isdir(folder_name)
+        mkdir(folder_name)
+    end
+    
+    return folder_name
+end
+
 
 function save_to_file(opt, id::RKTKID) where {T <: Real}
-    filename = rktk_filename(opt, id)
+    """   
+    Saves the progress of optimization to a file with the given ID. The file contains
+    the iteration count, precision, objective value, gradient norm, and current point.
+    If a file with the same ID already exists, the function checks if the new
+    optimization progress is better than the one saved in the file. If the new progress
+    is not better, no save is necessary.
+    
+    Parameters:
+        opt (BFGSOptimizer{T}): The optimizer object containing the current optimization progress.
+        id (RKTKID): The ID to use for the file to be saved.
+    
+    Returns:
+        None
+    """
+    
+    # precision_str = string(typeof(T))
+    # println("T has type $(precision_str)")
+
+    ## Create folder if it does not exist
+    folder_name = create_directory(id.order, id.num_stages)
+    filename = joinpath(folder_name, rktk_filename(opt, id))
+
+    # filename = rktk_filename(opt, id)
+
     rmk("Saving progress to file ", filename, "...")
     old_filename = find_filename_by_id(".", id)
     if old_filename !== nothing
@@ -250,6 +322,15 @@ end
 const TERM = isa(stdout, Base.TTY)
 
 function run!(opt, id::RKTKID) where {T <: Real}
+    """
+    Runs the optimization until convergence, periodically saving the results to a file.
+
+    Args:
+        opt: An object representing the optimization.
+        id (RKTKID): An object representing the ID of the current RKTK simulation.
+
+    """
+
     print_table_header()
     print_table_row(opt, "NONE")
     save_to_file(opt, id)
@@ -277,7 +358,18 @@ function run!(opt, id::RKTKID) where {T <: Real}
 end
 
 function run!(opt, id::RKTKID, duration_ns::UInt) where {T <: Real}
-    save_to_file(opt, id)
+    """
+    Run the optimization in-place until convergence or until the specified duration has elapsed.
+
+    Arguments:
+    - `opt`: the optimizer to run.
+    - `id::RKTKID`: an identifier for the optimization problem.
+    - `duration_ns::UInt`: the maximum duration of the optimization process, in nanoseconds.
+
+    Returns:
+    - A boolean value indicating whether the optimization process has converged.
+    """
+
     start_time = last_save_time = time_ns()
     while true
         step!(opt)
@@ -296,10 +388,27 @@ end
 ################################################################################
 
 function search(::Type{T}, id::RKTKID) where {T <: Real}
+    """
+    search(::Type{T}, id::RKTKID) where {T <: Real}
+
+    Runs a search algorithm to find a Runge-Kutta method of the specified order and number of stages
+    for the given `id`, using the specified floating-point precision `T`.
+
+    # Arguments
+    - `T`: The type of floating-point numbers to use.
+    - `id`: The ID of the Runge-Kutta method to search for.
+    """
+
     setprecision(approx_precision(T))
     num_vars = div(id.num_stages * (id.num_stages + 1), 2)
+
+    # Create an instance of an RKOC optimizer with the specified parameters
     optimizer = rkoc_optimizer(T, id.order, id.num_stages,
         rand(BigFloat, num_vars), 0)
+
+    # precision_str = string(T)
+    # println("T has type $(precision_str)")
+
     say("Running $T search $id.\n")
     run!(optimizer, id)
     say("\nCompleted $T search $id.\n")
@@ -419,6 +528,23 @@ end
 ################################################################################
 
 function get_order(n::Int)
+    """
+    get_order(n::Int)
+    
+    Return an integer representing the order of the Runge-Kutta method to be used for RKTK.
+    Arguments
+    
+        n::Int: an integer representing the position of the order parameter in the command line arguments (ARGS).
+    
+    Returns
+    
+        An integer representing the order of the Runge-Kutta method.
+    
+    Errors
+    
+        Throws an error and exits the program if the n parameter is not a valid integer between 1 and 20.
+    """
+
     result = tryparse(Int, ARGS[n])
     if (result === nothing) || (result < 1) || (result > 20)
         say("ERROR: Parameter $n (\"$(ARGS[n])\") must be ",
@@ -429,6 +555,17 @@ function get_order(n::Int)
 end
 
 function get_num_stages(n::Int)
+    """
+    Parses and validates the stage parameter passed as the nth argument.
+    Must be an integer between 1 and 99.
+
+    Args:
+    n (int): The position of the stage parameter in the command line arguments.
+
+    Returns:
+        int: The validated number of stages.
+    """
+
     result = tryparse(Int, ARGS[n])
     if (result === nothing) || (result < 1) || (result > 99)
         say("ERROR: Stage parameter $n (\"$(ARGS[n])\") must be ",
@@ -439,17 +576,27 @@ function get_num_stages(n::Int)
 end
 
 function main()
+    """
+    main()
+
+    The main entry point of the RKToolbox program. Parses command-line arguments and dispatches to subcommands.
+    """
 
     if (length(ARGS) == 0) || ("-h" in ARGS) || ("--help" in ARGS) let
         print_help()
 
     end elseif uppercase(ARGS[1]) == "SEARCH" let
+        # If the first argument is "SEARCH", run an infinite search loop using the
+        # specified precision, order, and number of stages.
         order, num_stages = get_order(2), get_num_stages(3)
         prec = parse(Int, ARGS[4])
         while true
             search(precision_type(prec), RKTKID(order, num_stages, uuid4()))
+            
+            break
         end
 
+    ## This was originally commented - J.P.Curbelo
     # end elseif uppercase(ARGS[1]) == "MULTISEARCH" let
     #     order, num_stages = get_order(2), get_num_stages(3)
     #     prec = parse(Int, ARGS[4])

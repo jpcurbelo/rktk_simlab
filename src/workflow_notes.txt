@@ -1,0 +1,11 @@
+**Example: julia RKTK.jl search 2 4 10**
+
+- Within the RKTK.jl file, the search function is called with the provided arguments:
+
+2 as the order of the Runge-Kutta method to be searched
+4 as the number of stages of the Runge-Kutta method to be searched
+10 as the precision of the search (the number of significant digits)
+
+- Create an instance of an RKOC optimizer with the specified parameters and an objective function
+- The optimizer runs an optimization algorithm to find the Runge-Kutta method that minimizes the 
+  objective function, using the provided parameters as input.

@@ -1,5 +1,4 @@
 # Packages to install 
-## needed them for the original repo but not for the forked one - guess the were already installed)
 
 #RKTK.jl
 import Pkg; Pkg.add("DZOptimization")
