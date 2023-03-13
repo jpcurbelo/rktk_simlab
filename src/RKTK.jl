@@ -100,6 +100,17 @@ function find_rktkid(str::String)::Union{RKTKID,Nothing}
 end
 
 function find_filename_by_id(dir::String, id::RKTKID)::Union{String,Nothing}
+    """
+    Finds a file in the specified directory with the given RKTKID.
+
+    Parameters:
+        dir (str): The directory to search in.
+        id (RKTKID): The RKTKID of the file to find.
+
+    Returns:
+        str or None: The filename of the matching file if found, otherwise None.
+    """
+
     result = nothing
     for filename in readdir(dir)
         m = match(RKTKID_REGEX, filename)
@@ -199,12 +210,10 @@ function rmk_table_row(opt, type)::Nothing
 end
 
 ################################################################################
-
+## for SEARCH
 function rkoc_optimizer(::Type{T}, order::Int, num_stages::Int,
         x_init::Vector{BigFloat}, num_iters::Int) where {T <: Real}
-    """
-    rkoc_optimizer(T, order, num_stages, x_init, num_iters)
-    
+    """   
     Create an optimizer for the RKOC (Runge-Kutta Optimized Controller) algorithm with the given parameters.
     
     # Arguments
@@ -219,20 +228,51 @@ function rkoc_optimizer(::Type{T}, order::Int, num_stages::Int,
 
     """
 
-    ## homefolder/.julia/packages/...
-    # ("RungeKuttaToolKit") Objective and gradient functors for the RKOC method with the given T, order and num_stages.
+    ## homefolder/.julia/packages/RungeKuttaToolKit/JsRGa/src/RungeKuttaToolKit.jl:1237
+    ## ("RungeKuttaToolKit") Objective and gradient functors for the RKOC method with the given T, order and num_stages.
     obj_func, grad_func = rkoc_explicit_backprop_functors(T, order, num_stages)
+    
+    # println(obj_func)
+    # println(grad_func)
+    
     num_vars = div(num_stages * (num_stages + 1), 2)
     @assert length(x_init) == num_vars
 
-    # ("DZOptimization")
+    ## ("DZOptimization")
     opt = BFGSOptimizer(obj_func, grad_func, T.(x_init), inv(T(1_000_000)))
+    # println(opt)
+
     opt.iteration_count[] = num_iters
     opt
 end
 
+## for REFINE
 function rkoc_optimizer(::Type{T}, id::RKTKID,
                         filename::String) where {T <: Real}
+
+    """
+    Applies a Runge-Kutta optimal control method to optimize the given objective 
+    function using a trajectory of time-dependent solutions from a file named 
+    `filename`. Returns a tuple of the solution and the trajectory header.
+    
+    # Arguments
+    - `T`: The element type for the numerical values. Must be a subtype of `Real`.
+    - `id`: The identifier for the Runge-Kutta optimal control method. Must be of 
+            type `RKTKID`.
+    - `filename`: The name of the file containing the trajectory of time-dependent 
+                    solutions.
+    
+    # Returns
+    - A tuple of '(solution, header)' where 'solution' is the solution to the 
+        optimization problem and 'header' is a 'Vector{String}' cosplitntaining the 
+        parsed header information from the trajectory.
+    """
+
+
+    # println("filename $(filename)")
+    # filename = split(filename, "/")[end]
+    # println("filename $(filename)")
+
     trajectory = filter(!isempty, strip.(split(read(filename, String), "\n\n")))
     point_data = filter(!isempty, strip.(split(trajectory[end], '\n')))
     header = split(point_data[1])
@@ -242,7 +282,7 @@ function rkoc_optimizer(::Type{T}, id::RKTKID,
 end
 
 ################################################################################
-function create_directory(order::Int, num_stages::Int, ::Type{T}) where {T <: Real}
+function create_directory(order::Int, num_stages::Int)
     """
     Creates a directory with a specific format to store the files before creating them.
 
@@ -254,10 +294,7 @@ function create_directory(order::Int, num_stages::Int, ::Type{T}) where {T <: Re
         folder_name (String): The name of the created folder.
     """
 
-    # # precision_str = string(typeof(T))
-    # # println("TT has type $(precision_str), $(T)")
-
-    folder_name = "RKTK_order_$(order)_num_stages$(num_stages)_precision$(T)"
+    folder_name = "RKTK_order_$(order)_num_stages$(num_stages)_precisionFloat$(precision(BigFloat))"
     
     # create folder if it does not exist
     if !isdir(folder_name)
@@ -268,7 +305,7 @@ function create_directory(order::Int, num_stages::Int, ::Type{T}) where {T <: Re
 end
 
 
-function save_to_file(opt, id::RKTKID, ::Type{T}) where {T <: Real}
+function save_to_file(opt, id::RKTKID)
     """   
     Saves the progress of optimization to a file with the given ID. The file contains
     the iteration count, precision, objective value, gradient norm, and current point.
@@ -285,16 +322,16 @@ function save_to_file(opt, id::RKTKID, ::Type{T}) where {T <: Real}
     """
 
     ## Create folder if it does not exist
-    folder_name = create_directory(id.order, id.num_stages, T)
+    folder_name = create_directory(id.order, id.num_stages)
     filename = joinpath(folder_name, rktk_filename(opt, id))
 
-    # filename = rktk_filename(opt, id)
+    # # # filename = rktk_filename(opt, id)
 
     rmk("Saving progress to file ", filename, "...")
     old_filename = find_filename_by_id(".", id)
     if old_filename !== nothing
         if old_filename != filename
-            mv(old_filename, filename)
+            mv(old_filename, filename; force=true)
         end
         trajectory = filter(!isempty,
             strip.(split(read(filename, String), "\n\n")))
@@ -307,9 +344,11 @@ function save_to_file(opt, id::RKTKID, ::Type{T}) where {T <: Real}
             return
         end
     end
+
     file = open(filename, "a+")
     println(file, opt.iteration_count[], ' ', precision(BigFloat), ' ',
             log_score(opt.current_objective_value[]), ' ', log_score(norm(opt.current_gradient)))
+
     for x in opt.current_point
         println(file, BigFloat(x))
     end
@@ -321,7 +360,7 @@ end
 const TERM = isa(stdout, Base.TTY)
 
 ## this!!!
-function run!(opt, id::RKTKID, ::Type{T}) where {T <: Real}
+function run!(opt, id::RKTKID) where {T <: Real}
     """
     Runs the optimization until convergence, periodically saving the results to a file.
 
@@ -333,20 +372,21 @@ function run!(opt, id::RKTKID, ::Type{T}) where {T <: Real}
 
     print_table_header()
     print_table_row(opt, "NONE")
-    save_to_file(opt, id, T)
+    save_to_file(opt, id)
     
     last_print_time = last_save_time = time_ns()
    
     while true
+        ## homefolder/.julia/packages/DZOptimization/ENzlO/src/DZOptimization.jl
         step!(opt)
         if opt.has_converged[]
             print_table_row(opt, "DONE")
-            save_to_file(opt, id, T)
+            save_to_file(opt, id)
             return
         end
         current_time = time_ns()
         if current_time - last_save_time > UInt(60_000_000_000)
-            save_to_file(opt, id, T)
+            save_to_file(opt, id)
             last_save_time = current_time
         end
         if opt.last_step_type[] == DZOptimization.GradientDescentStep
@@ -359,33 +399,33 @@ function run!(opt, id::RKTKID, ::Type{T}) where {T <: Real}
     end
 end
 
-function run!(opt, id::RKTKID, duration_ns::UInt) where {T <: Real}
-    """
-    Run the optimization in-place until convergence or until the specified duration has elapsed.
+# function run!(opt, id::RKTKID, duration_ns::UInt) where {T <: Real}
+#     """
+#     Run the optimization in-place until convergence or until the specified duration has elapsed.
 
-    Arguments:
-    - `opt`: the optimizer to run.
-    - `id::RKTKID`: an identifier for the optimization problem.
-    - `duration_ns::UInt`: the maximum duration of the optimization process, in nanoseconds.
+#     Arguments:
+#     - `opt`: the optimizer to run.
+#     - `id::RKTKID`: an identifier for the optimization problem.
+#     - `duration_ns::UInt`: the maximum duration of the optimization process, in nanoseconds.
 
-    Returns:
-    - A boolean value indicating whether the optimization process has converged.
-    """
+#     Returns:
+#     - A boolean value indicating whether the optimization process has converged.
+#     """
 
-    start_time = last_save_time = time_ns()
-    while true
-        step!(opt)
-        current_time = time_ns()
-        if opt.has_converged[] || (current_time - start_time > duration_ns)
-            save_to_file(opt, id)
-            return opt.has_converged[]
-        end
-        if current_time - last_save_time > UInt(60_000_000_000)
-            save_to_file(opt, id)
-            last_save_time = current_time
-        end
-    end
-end
+#     start_time = last_save_time = time_ns()
+#     while true
+#         step!(opt)
+#         current_time = time_ns()
+#         if opt.has_converged[] || (current_time - start_time > duration_ns)
+#             save_to_file(opt, id)
+#             return opt.has_converged[]
+#         end
+#         if current_time - last_save_time > UInt(60_000_000_000)
+#             save_to_file(opt, id)
+#             last_save_time = current_time
+#         end
+#     end
+# end
 
 ################################################################################
 
@@ -412,20 +452,36 @@ function search(::Type{T}, id::RKTKID) where {T <: Real}
     # # println("T has type $(precision_str)")
 
     say("Running $T search $id.\n")
-    run!(optimizer, id, T)
+    run!(optimizer, id)
     say("\nCompleted $T search $id.\n")
 end
 
 function refine(::Type{T}, id::RKTKID, filename::String) where {T <: Real}
+    """
+    Runs a refinement on the optimization progress saved in a file with the given ID and filename
+    using the given floating-point number type.
+    
+    Args:
+        T (Type{T}): The type of floating-point numbers to use in the optimization.
+        id (RKTKID): The ID of the file to refine.
+        filename (str): The filename of the file to refine.
+    
+    Returns:
+        None.
+    """   
+    
     setprecision(approx_precision(T))
     say("Running ", T, " refinement $id.\n")
     optimizer, header = rkoc_optimizer(T, id, filename)
+    
     if precision(BigFloat) < parse(Int, header[2])
         say("WARNING: Refining at lower precision than source file.\n")
     end
+
     starting_iteration = optimizer.iteration_count[]
     run!(optimizer, id)
     ending_iteration = optimizer.iteration_count[]
+    
     if ending_iteration > starting_iteration
         say("\nRepeating $T refinement $id.\n")
         refine(T, id, find_filename_by_id(".", id))
