@@ -242,20 +242,22 @@ function rkoc_optimizer(::Type{T}, id::RKTKID,
 end
 
 ################################################################################
-function create_directory(order::Int, num_stages::Int)
+function create_directory(order::Int, num_stages::Int, ::Type{T}) where {T <: Real}
     """
     Creates a directory with a specific format to store the files before creating them.
 
     Args:
         order (Int): The order of the simulation.
         num_stages (Int): The number of stages of the simulation.
-        precision (Int): The precision of the simulation.
     
     Returns:
         folder_name (String): The name of the created folder.
     """
 
-    folder_name = "RKTK_order_$(order)_num_stages_$(num_stages)_precision_Float32"
+    # # precision_str = string(typeof(T))
+    # # println("TT has type $(precision_str), $(T)")
+
+    folder_name = "RKTK_order_$(order)_num_stages$(num_stages)_precision$(T)"
     
     # create folder if it does not exist
     if !isdir(folder_name)
@@ -266,7 +268,7 @@ function create_directory(order::Int, num_stages::Int)
 end
 
 
-function save_to_file(opt, id::RKTKID) where {T <: Real}
+function save_to_file(opt, id::RKTKID, ::Type{T}) where {T <: Real}
     """   
     Saves the progress of optimization to a file with the given ID. The file contains
     the iteration count, precision, objective value, gradient norm, and current point.
@@ -277,16 +279,13 @@ function save_to_file(opt, id::RKTKID) where {T <: Real}
     Parameters:
         opt (BFGSOptimizer{T}): The optimizer object containing the current optimization progress.
         id (RKTKID): The ID to use for the file to be saved.
-    
+        T (Type{T}): The type of floating-point numbers to use in the optimization.
     Returns:
         None
     """
-    
-    # precision_str = string(typeof(T))
-    # println("T has type $(precision_str)")
 
     ## Create folder if it does not exist
-    folder_name = create_directory(id.order, id.num_stages)
+    folder_name = create_directory(id.order, id.num_stages, T)
     filename = joinpath(folder_name, rktk_filename(opt, id))
 
     # filename = rktk_filename(opt, id)
@@ -321,30 +320,33 @@ end
 
 const TERM = isa(stdout, Base.TTY)
 
-function run!(opt, id::RKTKID) where {T <: Real}
+## this!!!
+function run!(opt, id::RKTKID, ::Type{T}) where {T <: Real}
     """
     Runs the optimization until convergence, periodically saving the results to a file.
 
     Args:
         opt: An object representing the optimization.
         id (RKTKID): An object representing the ID of the current RKTK simulation.
-
+        T (Type{T}): The type of floating-point numbers to use in the optimization.
     """
 
     print_table_header()
     print_table_row(opt, "NONE")
-    save_to_file(opt, id)
+    save_to_file(opt, id, T)
+    
     last_print_time = last_save_time = time_ns()
+   
     while true
         step!(opt)
         if opt.has_converged[]
             print_table_row(opt, "DONE")
-            save_to_file(opt, id)
+            save_to_file(opt, id, T)
             return
         end
         current_time = time_ns()
         if current_time - last_save_time > UInt(60_000_000_000)
-            save_to_file(opt, id)
+            save_to_file(opt, id, T)
             last_save_time = current_time
         end
         if opt.last_step_type[] == DZOptimization.GradientDescentStep
@@ -402,15 +404,15 @@ function search(::Type{T}, id::RKTKID) where {T <: Real}
     setprecision(approx_precision(T))
     num_vars = div(id.num_stages * (id.num_stages + 1), 2)
 
-    # Create an instance of an RKOC optimizer with the specified parameters
+    ## Create an instance of an RKOC optimizer with the specified parameters
     optimizer = rkoc_optimizer(T, id.order, id.num_stages,
         rand(BigFloat, num_vars), 0)
 
-    # precision_str = string(T)
-    # println("T has type $(precision_str)")
+    # # precision_str = string(T)
+    # # println("T has type $(precision_str)")
 
     say("Running $T search $id.\n")
-    run!(optimizer, id)
+    run!(optimizer, id, T)
     say("\nCompleted $T search $id.\n")
 end
 
