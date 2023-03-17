@@ -27,6 +27,9 @@ using DZMisc
 set_zero_subnormals(true)
 use_standard_multifloat_arithmetic()
 
+## Jesus
+using Printf
+
 ################################################################################
 
 function precision_type(prec::Int)::Type
@@ -90,8 +93,25 @@ const RKTK_FILENAME_REGEX = Regex(
     "^[0-9]{4}-[0-9]{4}-[0-9]{4}-RKTK-([0-9]{2})([0-9]{2})-([0-9A-Fa-f]{8}-" *
     "[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})\\.txt\$")
 
+
 function find_rktkid(str::String)::Union{RKTKID,Nothing}
+    """
+    Extracts and parses the RKT Kid (Resource Key Token Kid) from a string.
+
+    Arguments
+
+    str::String: The input string to extract the RKT Kid from.
+
+    Returns an instance of RKTKID if a valid RKT Kid is found in the input string, otherwise returns nothing.
+    """
+
+    println("filename $(str)")
+    str = split(str, "/")[end]
+    println("filename $(str)")
+    
     m = match(RKTKID_REGEX, str)
+
+    println("m = $(m)")
     if m !== nothing
         RKTKID(parse(Int, m[1]), parse(Int, m[2]), UUID(m[3]))
     else
@@ -171,8 +191,18 @@ function print_help()::Nothing
     say("Usage: julia RKTK.jl <command> [parameters...]")
     say()
     say("RKTK provides the following <command> options:")
+    say()
     say("    search <order> <num-stages> <precision>")
+    say("        Runs an infinite search loop using the specified precision, order, and number of stages.")
+    say()
     say("    refine <rktk-id> <precision>")
+    say("        Refines an existing Runge-Kutta method with the specified ID to the given precision.")
+    say()
+    say("    clean <precision>")
+    say("        Cleans all cached Runge-Kutta methods with the specified precision.")
+    say()
+    say("    benchmark <order> <num-stages> <benchmark-secs> <num-trials>")
+    say("        Runs benchmarks on Runge-Kutta methods with the specified order, number of stages, and floating-point types.")
     say()
 end
 
@@ -185,9 +215,29 @@ end
 
 function print_table_row(iter, obj_value, grad_norm,
                          step_size, point_norm, type)::Nothing
-    say(" ", lpad(iter, 9, ' '), " | ",
+    """
+    Prints a single row of a table summarizing optimization progress, with columns for the current iteration,
+    objective function value, gradient norm, step size, point norm, and optimization method type.
+
+    Args:
+        iter: An integer representing the current iteration.
+        obj_value: A floating-point number representing the current objective function value.
+        grad_norm: A floating-point number representing the norm of the current gradient.
+        step_size: A floating-point number representing the step size taken in the current iteration.
+        point_norm: A floating-point number representing the norm of the current point.
+        type: A string representing the optimization method type.
+
+    Returns:
+        Nothing
+    """
+
+    say("a ", lpad(iter, 9, ' '), " | ",
         numstr(obj_value), "│ ", numstr(grad_norm),  "│ ",
         numstr(step_size), "│ ", numstr(point_norm), "│ ", type)
+
+    # str = @sprintf("b %9d | %14.4e │ %14.4e │ %14.4e │ %14.4e │ %s", iter, obj_value, grad_norm, step_size, point_norm, type)
+    # print(str)
+
 end
 
 function rmk_table_row(iter, obj_value, grad_norm,
@@ -198,6 +248,18 @@ function rmk_table_row(iter, obj_value, grad_norm,
 end
 
 function print_table_row(opt, type)::Nothing
+    """
+    Prints a single row of a table summarizing optimization progress, with columns for the current iteration,
+    objective function value, gradient norm, step size, point norm, and optimization method type.
+    
+    Args:
+        opt: An optimization object with the current iteration count, current objective value, current gradient, 
+            last step size, and current point.
+        type: A string representing the optimization method type.
+    
+    Returns:
+        Nothing
+    """
     print_table_row(opt.iteration_count[], opt.current_objective_value[],
                     norm(opt.current_gradient),
                     opt.last_step_size[1], norm(opt.current_point), type)
@@ -246,7 +308,7 @@ function rkoc_optimizer(::Type{T}, order::Int, num_stages::Int,
     opt
 end
 
-## for REFINE
+## for REFINE???
 function rkoc_optimizer(::Type{T}, id::RKTKID,
                         filename::String) where {T <: Real}
 
@@ -305,7 +367,7 @@ function create_directory(order::Int, num_stages::Int)
 end
 
 
-function save_to_file(opt, id::RKTKID)
+function save_to_file(opt, id::RKTKID, folder_path::AbstractString)
     """   
     Saves the progress of optimization to a file with the given ID. The file contains
     the iteration count, precision, objective value, gradient norm, and current point.
@@ -321,17 +383,51 @@ function save_to_file(opt, id::RKTKID)
         None
     """
 
-    ## Create folder if it does not exist
-    folder_name = create_directory(id.order, id.num_stages)
-    filename = joinpath(folder_name, rktk_filename(opt, id))
+    # # Create folder if it does not exist
+    # # folder_name = create_directory(id.order, id.num_stages)
+    
+    # # folder_name = "RKTK_order_$(id.order)_num_stages$(id.num_stages)_precisionFloat$(precision(BigFloat))"
+    filename = joinpath(folder_path, rktk_filename(opt, id))
 
-    # # # filename = rktk_filename(opt, id)
+    # filename = rktk_filename(opt, id)
 
-    rmk("Saving progress to file ", filename, "...")
-    old_filename = find_filename_by_id(".", id)
+    rmk("Saving progress to file ", filename, "...\n")
+
+    old_folder_name = replace(folder_path, "_clean" => "")
+    println("old_folder_name = $(old_folder_name)")
+    println("id = $(id)")
+
+    old_filename = find_filename_by_id(old_folder_name, id)   ##"."
+
+    println(old_filename)
+    
     if old_filename !== nothing
+
+        println("old_filename, filename", old_filename, filename)
+        
         if old_filename != filename
+
             mv(old_filename, filename; force=true)
+
+            # println("\n\ncp(old_filename, filename; force=true)")
+
+            # cp(old_filename, filename; force=true)
+
+            # old_dir = dirname(old_filename)
+            # new_dir = dirname(filename)
+
+            # if old_dir == new_dir
+            #     # rename the file in the same directory
+            #     mv(old_filename, filename; force=true)
+            # else
+            #     # copy the file to a new directory
+            #     cp(old_filename, basename(filename); force=true)
+        
+            #     # delete the original file
+            #     rm(old_filename)
+            # end
+
+            
         end
         trajectory = filter(!isempty,
             strip.(split(read(filename, String), "\n\n")))
@@ -345,16 +441,19 @@ function save_to_file(opt, id::RKTKID)
         end
     end
 
-    file = open(filename, "a+")
-    println(file, opt.iteration_count[], ' ', precision(BigFloat), ' ',
-            log_score(opt.current_objective_value[]), ' ', log_score(norm(opt.current_gradient)))
+    if log_score(opt.current_objective_value[]) > 9999999   #999999999
+        file = open(filename, "a+")
+        println(file, opt.iteration_count[], ' ', precision(BigFloat), ' ',
+                log_score(opt.current_objective_value[]), ' ', log_score(norm(opt.current_gradient)))
 
-    for x in opt.current_point
-        println(file, BigFloat(x))
+        for x in opt.current_point
+            println(file, BigFloat(x))
+        end
+        println(file)
+        close(file)
+        rmk("Save complete.")
     end
-    println(file)
-    close(file)
-    rmk("Save complete.")
+
 end
 
 const TERM = isa(stdout, Base.TTY)
@@ -370,17 +469,24 @@ function run!(opt, id::RKTKID) where {T <: Real}
         T (Type{T}): The type of floating-point numbers to use in the optimization.
     """
 
-    print_table_header()
-    print_table_row(opt, "NONE")
+    # print_table_header()
+    # print_table_row(opt, "NONE")
     save_to_file(opt, id)
     
     last_print_time = last_save_time = time_ns()
    
+   
+    # file_counter = 1
     while true
+
+        # println("\nfile_counter = $(file_counter)\n")
+        # file_counter += 1
+
+
         ## homefolder/.julia/packages/DZOptimization/ENzlO/src/DZOptimization.jl
         step!(opt)
         if opt.has_converged[]
-            print_table_row(opt, "DONE")
+            # print_table_row(opt, "DONE")
             save_to_file(opt, id)
             return
         end
@@ -389,43 +495,54 @@ function run!(opt, id::RKTKID) where {T <: Real}
             save_to_file(opt, id)
             last_save_time = current_time
         end
-        if opt.last_step_type[] == DZOptimization.GradientDescentStep
-            print_table_row(opt, "GRAD")
-            last_print_time = current_time
-        elseif TERM && (current_time - last_print_time > UInt(100_000_000))
-            rmk_table_row(opt, "BFGS")
-            last_print_time = current_time
-        end
+        # if opt.last_step_type[] == DZOptimization.GradientDescentStep
+        #     print_table_row(opt, "GRAD")
+        #     last_print_time = current_time
+        # elseif TERM && (current_time - last_print_time > UInt(100_000_000))
+        #     rmk_table_row(opt, "BFGS")
+        #     last_print_time = current_time
+        # end
     end
 end
 
-# function run!(opt, id::RKTKID, duration_ns::UInt) where {T <: Real}
-#     """
-#     Run the optimization in-place until convergence or until the specified duration has elapsed.
 
-#     Arguments:
-#     - `opt`: the optimizer to run.
-#     - `id::RKTKID`: an identifier for the optimization problem.
-#     - `duration_ns::UInt`: the maximum duration of the optimization process, in nanoseconds.
+## clean
+function run!(opt, id::RKTKID, duration_ns::UInt) where {T <: Real}
+    """
+    Run the optimization in-place until convergence or until the specified duration has elapsed.
 
-#     Returns:
-#     - A boolean value indicating whether the optimization process has converged.
-#     """
+    Arguments:
+    - `opt`: the optimizer to run.
+    - `id::RKTKID`: an identifier for the optimization problem.
+    - `duration_ns::UInt`: the maximum duration of the optimization process, in nanoseconds.
 
-#     start_time = last_save_time = time_ns()
-#     while true
-#         step!(opt)
-#         current_time = time_ns()
-#         if opt.has_converged[] || (current_time - start_time > duration_ns)
-#             save_to_file(opt, id)
-#             return opt.has_converged[]
-#         end
-#         if current_time - last_save_time > UInt(60_000_000_000)
-#             save_to_file(opt, id)
-#             last_save_time = current_time
-#         end
-#     end
-# end
+    Returns:
+    - A boolean value indicating whether the optimization process has converged.
+    """
+
+    println("cleaning -- running")
+
+    folder_name = "RKTK_order_$(id.order)_num_stages$(id.num_stages)_precisionFloat$(precision(BigFloat))_clean"
+    
+    # create folder if it does not exist
+    if !isdir(folder_name)
+        mkdir(folder_name)
+    end
+
+    start_time = last_save_time = time_ns()
+    while true
+        step!(opt)
+        current_time = time_ns()
+        if opt.has_converged[] || (current_time - start_time > duration_ns)
+            save_to_file(opt, id, folder_name)
+            return opt.has_converged[]
+        end
+        if current_time - last_save_time > UInt(60_000_000_000)
+            save_to_file(opt, id, folder_name)
+            last_save_time = current_time
+        end
+    end
+end
 
 ################################################################################
 
@@ -539,6 +656,74 @@ function clean(::Type{T}) where {T <: Real}
     end
 end
 
+
+function clean_folder(folder_path::AbstractString, ::Type{T}) where {T <: Real}
+    """
+    clean_folder(folder_path::AbstractString, T)
+    
+    Recursively cleans all files with a valid RKTKID filename in the specified folder and its subfolders,
+    using the given precision type T.
+    
+    Arguments:
+    
+        folder_path::AbstractString: the path of the folder to be cleaned.
+        T: the precision type to be used for the cleaning.
+    
+    Returns: nothing.
+    """
+   
+    setprecision(approx_precision(T))
+    optimizers = Tuple{Int,RKTKID,Any}[]
+    for filename in readdir(folder_path)
+        if match(RKTKID_REGEX, filename) !== nothing
+            file_path = joinpath(folder_path, filename)
+            id = find_rktkid(filename)
+
+            optimizer, header = rkoc_optimizer(T, id, file_path)
+            if precision(BigFloat) < parse(Int, header[2])
+                say("ERROR: Cleaning at lower precision than source file \"",
+                    filename, "\".")
+                exit()
+            end
+            push!(optimizers,
+                (log_score(optimizer.current_objective_value[]), id, optimizer))
+        end
+    end
+    say("Found ", length(optimizers), " RKTK files.")
+    while true
+        num_optimizers = length(optimizers)
+        sort!(optimizers, by=(t -> t[1]), rev=true)
+        completed = zeros(Bool, num_optimizers)
+        @threads for i = 1 : num_optimizers
+            _, id, optimizer = optimizers[i]
+            old_score = rktk_score_str(optimizer)
+            start_iter = optimizer.iteration_count[]
+            completed[i] = run!(optimizer, id, UInt(10_000_000_000))
+            stop_iter = optimizer.iteration_count[]
+            new_score = rktk_score_str(optimizer)
+            say(ifelse(completed[i], "    Cleaned ", "    Working "),
+                id, " (", stop_iter - start_iter, " iterations: ",
+                old_score, " => ", new_score, ") on thread ", threadid(), ".")
+        end
+        next_optimizers = Tuple{Int,RKTKID,Any}[]
+        for i = 1 : length(optimizers)
+            if !completed[i]
+                _, id, optimizer = optimizers[i]
+                push!(next_optimizers,
+                    (log_score(optimizer.current_objective_value[]), id, optimizer))
+            end
+        end
+        if length(next_optimizers) == 0
+            say("All RKTK files cleaned!")
+            break
+        end
+        optimizers = next_optimizers
+        say(length(optimizers), " RKTK files remaining.")
+    end
+end
+
+
+
 function benchmark(::Type{T}, order::Int, num_stages::Int,
         benchmark_secs) where {T <: Real}
     setprecision(approx_precision(T))
@@ -651,7 +836,7 @@ function main()
         while true
             search(precision_type(prec), RKTKID(order, num_stages, uuid4()))
             
-            break
+            # break
         end
 
     ## This was originally commented - J.P.Curbelo
@@ -668,17 +853,26 @@ function main()
                 "RKTK-XXYY-ZZZZZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZZZZZZZZZ.\n")
             exit()
         end
-        filename = find_filename_by_id(".", id)
+
+        filename = find_filename_by_id(".", id)   #"."
         if filename === nothing
-            say("ERROR: No file exists with RKTK ID $id.\n")
+            say("ERRORRRRR: No file exists with RKTK ID $id.\n")
             exit()
         end
         prec = parse(Int, ARGS[3])
         refine(precision_type(prec), id, filename)
 
+    # # end elseif uppercase(ARGS[1]) == "CLEAN" let
+    # #     prec = parse(Int, ARGS[2])
+    # #     clean(precision_type(prec))
+
     end elseif uppercase(ARGS[1]) == "CLEAN" let
         prec = parse(Int, ARGS[2])
-        clean(precision_type(prec))
+        if length(ARGS) == 3 
+            clean_folder(ARGS[3], precision_type(prec))
+        else
+            clean(precision_type(prec))
+        end
 
     end elseif uppercase(ARGS[1]) == "BENCHMARK" let
         order, num_stages = get_order(2), get_num_stages(3)
